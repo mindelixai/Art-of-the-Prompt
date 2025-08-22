@@ -1,16 +1,389 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Art of the Prompt</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Art of the Prompt — Microlearning</title>
+    <link rel="stylesheet" href="style.css" />
+    <!-- React + ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel to compile JSX in-browser (no build step needed) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- html2canvas for certificate download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
-    <!-- html2canvas for certificate download -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
-            integrity="sha512-BNa7bXSo1xkXgq0N1sG7s6KqQh0kqKk8qH2J9mWQp2p0Ck3C1fJmE4nq6pQkODqM9bS2F3zR7rY3R2YdYy8Ybg=="
-            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script type="module" src="/src/main.jsx"></script>
+
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState } = React;
+
+      // ---------- Theme ----------
+      const colors = {
+        navy: "#0E0E1A",
+        blue: "#1d63ff",
+        purple: "#7a3eff",
+        orange: "#ff884d",
+        white: "#ffffff",
+        textSecondary: "rgba(245,245,245,.7)",
+        green: "#28a745",
+      };
+      const gradientFlame = "linear-gradient(135deg, #1d63ff 0%, #7a3eff 50%, #ff884d 100%)";
+
+      // ---------- Small UI helpers (no external icon libs) ----------
+      const IconBox = ({label}) => (
+        <div className="icon-box" aria-hidden="true">
+          <span>{label}</span>
+        </div>
+      );
+
+      const SectionCard = ({ title, iconLabel, children }) => (
+        <div className="card">
+          <div className="card-head">
+            <IconBox label={iconLabel || "★"} />
+            <h3>{title}</h3>
+          </div>
+          <div className="card-body">{children}</div>
+        </div>
+      );
+
+      const PromptChip = ({ text, onClick }) => (
+        <button className="chip" onClick={() => onClick(text)}>
+          <span className="chip-icon">✨</span>
+          <span>{text}</span>
+        </button>
+      );
+
+      // ---------- Certificate ----------
+      function Certificate({ userName, courseTitle, completionDate }) {
+        const ref = useRef(null);
+        const [downloading, setDownloading] = useState(false);
+
+        const downloadPng = async () => {
+          if (!window.html2canvas || !ref.current) return;
+          setDownloading(true);
+          try {
+            const canvas = await window.html2canvas(ref.current, { scale: 2, useCORS: true, backgroundColor: null });
+            const url = canvas.toDataURL("image/png", 1.0);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `Certificate_${(userName||"Your_Name").replace(/\s/g,"_")}_${(courseTitle||"Course").replace(/\s/g,"_")}.png`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          } catch (e) {
+            alert("Could not generate the certificate. Try again.");
+            console.error(e);
+          } finally {
+            setDownloading(false);
+          }
+        };
+
+        return (
+          <div className="cert-wrap">
+            <div ref={ref} className="certificate">
+              <div className="certificate-deco certificate-deco--tl" />
+              <div className="certificate-deco certificate-deco--br" />
+              <h2 className="certificate-title">Certificate of Completion</h2>
+              <p className="certificate-text">This certifies that</p>
+              <h1 className="certificate-name">{userName || "[Your Name]"}</h1>
+              <p className="certificate-text">has successfully completed the course</p>
+              <p className="certificate-course">“{courseTitle || "[Course Title]"}”</p>
+              <div className="certificate-footer">
+                <div className="certificate-brand">Mindelix AI</div>
+                <div className="certificate-date">
+                  <div className="certificate-date-value">Date: {completionDate}</div>
+                  <div className="certificate-date-label">Completion Date</div>
+                </div>
+              </div>
+            </div>
+
+            <button className="btn btn-primary cert-download" onClick={downloadPng} disabled={downloading || !userName || !courseTitle}>
+              {downloading ? "Downloading…" : "Download Certificate"}
+            </button>
+          </div>
+        );
+      }
+
+      // ---------- Main App ----------
+      function App() {
+        const [lessons, setLessons] = useState([]);
+        const [activeId, setActiveId] = useState(null);
+        const activeLesson = useMemo(() => lessons.find(l => l.id === activeId), [lessons, activeId]);
+
+        const [userName, setUserName] = useState("");
+        const [userNotes, setUserNotes] = useState("");
+        const [aiResponse, setAiResponse] = useState("Tip: Ask the AI to extract key patterns from this lesson and create a mini quiz.");
+        const [isLoading, setIsLoading] = useState(false);
+        const [customPrompt, setCustomPrompt] = useState("");
+        const [completed, setCompleted] = useState(new Set());
+        const [showCert, setShowCert] = useState(false);
+
+        const [links, setLinks] = useState({ linkedin: "#", youtube: "#" });
+
+        // Load data.json + localStorage
+        useEffect(() => {
+          fetch("data.json")
+            .then(r => r.json())
+            .then(json => {
+              const fallbackLessons = [
+                { id: "vTW2cmN1kkk", title: "The Most Expensive Skill in 2025" },
+                { id: "HRFLHl58g5M", title: "Why Prompt Engineering Matters ?" },
+                { id: "1IAHBK3nuKs", title: "The Fundamentals of Good Prompting: Core Principles, Common Mistakes, and How to Avoid Them" },
+                { id: "aASZkLfGk5Q", title: "Most Effective Prompt Engineering Techniques 2025" },
+                { id: "6kW0VbJe6ic", title: "Prompt Engineering That Works Real Use Cases Across Business, Content & More" },
+              ];
+              setLessons(json?.lessons?.length ? json.lessons : fallbackLessons);
+              setActiveId((json?.lessons?.[0]?.id) || fallbackLessons[0].id);
+              setLinks(json?.links || { linkedin: "#", youtube: "#" });
+            })
+            .catch(() => {
+              // Use fallback if fetch fails (local dev)
+              const fallbackLessons = [
+                { id: "vTW2cmN1kkk", title: "The Most Expensive Skill in 2025" },
+                { id: "HRFLHl58g5M", title: "Why Prompt Engineering Matters ?" },
+                { id: "1IAHBK3nuKs", title: "The Fundamentals of Good Prompting: Core Principles, Common Mistakes, and How to Avoid Them" },
+                { id: "aASZkLfGk5Q", title: "Most Effective Prompt Engineering Techniques 2025" },
+                { id: "6kW0VbJe6ic", title: "Prompt Engineering That Works Real Use Cases Across Business, Content & More" },
+              ];
+              setLessons(fallbackLessons);
+              setActiveId(fallbackLessons[0].id);
+            });
+
+          // Local storage
+          try {
+            const storedCompleted = localStorage.getItem('completedLessons');
+            if (storedCompleted) setCompleted(new Set(JSON.parse(storedCompleted)));
+            const storedName = localStorage.getItem('userName');
+            if (storedName) setUserName(storedName);
+          } catch (e) {}
+        }, []);
+
+        useEffect(() => {
+          try { localStorage.setItem('completedLessons', JSON.stringify(Array.from(completed))); } catch (e) {}
+        }, [completed]);
+
+        useEffect(() => {
+          try { localStorage.setItem('userName', userName); } catch (e) {}
+        }, [userName]);
+
+        // --- Fake AI (replace with your API call if desired) ---
+        const callAi = async (promptText) => {
+          // NOTE: This is a stub. Replace with a real API call if you want.
+          // Example (Gemini): POST https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=YOUR_KEY
+          await new Promise(r => setTimeout(r, 600));
+          return "🧠 AI says:\n\n• " + (promptText || "No prompt provided") + "\n• Turn notes into actions\n• Draft a mini-quiz (3 Qs)\n• Summarize in 3 bullets";
+        };
+
+        const handleSendPrompt = async (template, includeNotes=false) => {
+          setIsLoading(true);
+          setAiResponse("Thinking…");
+          try {
+            let final = template;
+            if (includeNotes && userNotes.trim()) final = template + "\\n\\nHere are my notes:\\n" + userNotes;
+            else if (includeNotes && !userNotes.trim()) {
+              setAiResponse("Please add some notes first!");
+              setIsLoading(false);
+              return;
+            }
+            const out = await callAi(final);
+            setAiResponse(out);
+          } catch {
+            setAiResponse("Oops! Something went wrong.");
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        const markComplete = () => {
+          if (!activeLesson) return;
+          setCompleted(prev => {
+            const n = new Set(prev);
+            n.add(activeLesson.id);
+            return n;
+          });
+          setShowCert(true);
+        };
+
+        const completionDate = React.useMemo(() => {
+          const o = { year: "numeric", month: "long", day: "numeric" };
+          return new Date().toLocaleDateString(undefined, o);
+        }, [activeLesson?.id]);
+
+        // Reset AI + cert when lesson changes
+        useEffect(() => {
+          setShowCert(false);
+          setAiResponse("Tip: Ask the AI to extract key patterns from this lesson and create a mini quiz.");
+        }, [activeLesson?.id]);
+
+        return (
+          <div className="page">
+            {/* Floating blobs */}
+            <div className="blob blob--1" aria-hidden="true"></div>
+            <div className="blob blob--2" aria-hidden="true"></div>
+
+            <header className="header">
+              <div className="brand">
+                <div className="brand-icon">✨</div>
+                <div className="brand-txt">
+                  <h1>Art of the Prompt</h1>
+                  <p>Microlearning with an AI study buddy</p>
+                </div>
+              </div>
+              <nav className="links">
+                <a href={links.linkedin} target="_blank" rel="noreferrer">LinkedIn</a>
+                <a href={links.youtube} target="_blank" rel="noreferrer">YouTube</a>
+              </nav>
+            </header>
+
+            <main className="container">
+              <SectionCard title="Welcome to The Art of the Prompt: Advanced Prompt Engineering Course" iconLabel="🏆">
+                <p className="mb">
+                  This course helps you master one of the most valuable skills of 2025: <b>Prompt Engineering</b>.
+                  It’s split into short modules with practical examples and exercises.
+                </p>
+                <h4 className="subhead">How to navigate</h4>
+                <ul className="list">
+                  <li>Start from the first module and go at your own pace.</li>
+                  <li>Use the Notes area to capture takeaways and ideas.</li>
+                  <li>Mark a module complete to unlock your <b>Certificate of Completion</b>.</li>
+                  <li>Finish all modules to earn a final course certificate.</li>
+                </ul>
+              </SectionCard>
+
+              <div className="grid">
+                {/* Left: Lessons */}
+                <aside className="col col--left">
+                  <SectionCard title="Lessons" iconLabel="📋">
+                    <div className="field">
+                      <label>Your name for certificates</label>
+                      <input
+                        type="text"
+                        placeholder="Enter your full name"
+                        value={userName}
+                        onChange={(e)=>setUserName(e.target.value)}
+                      />
+                    </div>
+
+                    <ul className="lessons">
+                      {lessons.map((l) => (
+                        <li key={l.id}>
+                          <button
+                            className={"lesson" + (activeId===l.id ? " lesson--active": "")}
+                            onClick={()=>setActiveId(l.id)}
+                          >
+                            <span>{l.title}</span>
+                            {completed.has(l.id) && <span className="lesson-check" title="Completed">✔</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </SectionCard>
+                </aside>
+
+                {/* Middle: Player + Notes */}
+                <section className="col col--mid">
+                  <SectionCard title={activeLesson?.title || "Select a lesson"} iconLabel="▶">
+                    {activeLesson ? (
+                      <div className="player">
+                        <div className="player-inner">
+                          <iframe
+                            className="yt"
+                            src={`https://www.youtube.com/embed/${activeLesson.id}?rel=0`}
+                            title={activeLesson.title}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                          ></iframe>
+                        </div>
+                      </div>
+                    ) : <p>Select a lesson to start.</p>}
+
+                    {activeLesson && (
+                      <button
+                        className={"btn btn-primary btn-complete" + (completed.has(activeLesson.id) ? " btn-disabled" : "")}
+                        onClick={markComplete}
+                        disabled={completed.has(activeLesson.id) || !userName.trim()}
+                        title={!userName.trim() ? "Enter your name to enable" : undefined}
+                      >
+                        {completed.has(activeLesson.id) ? "Lesson Complete!" : "Mark as Complete"}
+                      </button>
+                    )}
+
+                    {activeLesson && completed.has(activeLesson.id) && showCert && (
+                      <div className="cert-panel">
+                        <h3 className="panel-title">Your Certificate</h3>
+                        <Certificate
+                          userName={userName}
+                          courseTitle={activeLesson.title}
+                          completionDate={completionDate}
+                        />
+                      </div>
+                    )}
+                  </SectionCard>
+
+                  <SectionCard title="Notes" iconLabel="📝">
+                    <textarea
+                      className="notes"
+                      placeholder="Write your takeaways, timestamps, and examples here…"
+                      value={userNotes}
+                      onChange={(e)=>setUserNotes(e.target.value)}
+                    ></textarea>
+                  </SectionCard>
+                </section>
+
+                {/* Right: AI Assistant */}
+                <aside className="col col--right">
+                  <SectionCard title="AI Assistant" iconLabel="🤖">
+                    <div className="chips">
+                      <PromptChip text="Explain system vs user prompts with simple examples." onClick={(t)=>handleSendPrompt(t)} />
+                      <PromptChip text="Turn my notes into bullet points and action items." onClick={(t)=>handleSendPrompt(t, true)} />
+                      <PromptChip text="Suggest 3 practice prompts for few-shot email rewriting." onClick={(t)=>handleSendPrompt(t)} />
+                      <PromptChip text="Summarize the current video's topic in 3 key points." onClick={(t)=>handleSendPrompt(`${t} (based on: ${activeLesson?.title || "N/A"})`)} />
+                      <PromptChip text="Create a mini quiz (3 questions) based on my notes." onClick={(t)=>handleSendPrompt(t, true)} />
+                    </div>
+
+                    <div className="ai-box">
+                      {isLoading ? (
+                        <div className="ai-loading">
+                          <div className="spinner"></div>
+                          <span>Thinking…</span>
+                        </div>
+                      ) : (
+                        <pre className="ai-out">{aiResponse}</pre>
+                      )}
+                    </div>
+
+                    <div className="field">
+                      <label>Or ask your own question</label>
+                      <textarea
+                        rows="5"
+                        placeholder="E.g., What are the key takeaways from this lesson?"
+                        value={customPrompt}
+                        onChange={(e)=>setCustomPrompt(e.target.value)}
+                      ></textarea>
+                      <button className="btn btn-primary" onClick={()=>handleSendPrompt(customPrompt, true)} disabled={isLoading || !customPrompt.trim()}>
+                        Ask
+                      </button>
+                    </div>
+                  </SectionCard>
+                </aside>
+              </div>
+            </main>
+
+            <footer className="footer">
+              © Art of the Prompt — Mindelix AI 2025
+              <div className="footer-links">
+                <a href={links.linkedin} target="_blank" rel="noreferrer">LinkedIn</a>
+                <a href={links.youtube} target="_blank" rel="noreferrer">YouTube</a>
+              </div>
+            </footer>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
   </body>
 </html>
